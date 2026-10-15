@@ -3,6 +3,7 @@
 import pygame
 
 from audio import Audio
+from display import poll_web_pointers
 from entities import Coin, Player, Shot, Slime
 from ime import is_chinese_ime
 from level import CHUNK_W, GROUND_ROW, PIT_Y, ROWS, SOLID, TILE, World
@@ -131,6 +132,7 @@ class Game:
         self.touch.begin_frame()
         if events is None:
             events = pygame.event.get()
+        self.touch.ingest_web_pointers(poll_web_pointers())
         for event in events:
             if event.type == pygame.QUIT:
                 self.running = False

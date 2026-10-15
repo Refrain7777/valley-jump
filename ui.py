@@ -145,32 +145,62 @@ class TouchControls:
 
     def _pos_from_event(self, event, screen_size):
         if event.type in (pygame.FINGERDOWN, pygame.FINGERUP, pygame.FINGERMOTION):
-            return int(event.x * screen_size[0]), int(event.y * screen_size[1])
+            x, y = float(event.x), float(event.y)
+            # pygbag 有时给 0~1，有时已经是像素
+            if 0.0 <= x <= 1.5 and 0.0 <= y <= 1.5:
+                return int(x * screen_size[0]), int(y * screen_size[1])
+            return int(x), int(y)
         if hasattr(event, "pos"):
             return event.pos
         return None
 
     def _hit(self, pos, state):
         actions = []
-        if self.left_r.collidepoint(pos):
+        # 手机点按区域比绘制按钮略大，好点一些
+        pad = 12
+        if self.left_r.inflate(pad, pad).collidepoint(pos):
             actions.append("left")
-        if self.right_r.collidepoint(pos):
+        if self.right_r.inflate(pad, pad).collidepoint(pos):
             actions.append("right")
-        if self.jump_r.collidepoint(pos):
+        if self.jump_r.inflate(pad, pad).collidepoint(pos):
             actions.append("jump")
             if state == "down":
                 self.jump_clicked = True
-        if self.shoot_r.collidepoint(pos):
+        if self.shoot_r.inflate(pad, pad).collidepoint(pos):
             actions.append("shoot")
             if state == "down":
                 self.shoot_clicked = True
-        if self.mute_r.collidepoint(pos) and state == "down":
+        if self.mute_r.inflate(pad, pad).collidepoint(pos) and state == "down":
             self.mute_clicked = True
-        if self.shop_r.collidepoint(pos) and state == "down":
+        if self.shop_r.inflate(pad, pad).collidepoint(pos) and state == "down":
             self.shop_clicked = True
-        if self.start_r.collidepoint(pos) and state == "down":
+        if self.start_r.inflate(pad, pad).collidepoint(pos) and state == "down":
             self.start_clicked = True
         return actions
+
+    def ingest_web_pointers(self, pointers):
+        """用浏览器换算后的指针更新按键，不依赖 pygame 触摸事件。"""
+        live = set()
+        for item in pointers:
+            pid = f"js-{item['id']}"
+            live.add(pid)
+            pos = (int(item["x"]), int(item["y"]))
+            state = "move" if pid in self._held else "down"
+            self._held[pid] = self._hit(pos, state)
+        for key in list(self._held):
+            if str(key).startswith("js-") and key not in live:
+                self._held.pop(key, None)
+        self._refresh_held()
+
+    def _refresh_held(self):
+        self.left = self.right = self.jump = False
+        for acts in self._held.values():
+            if "left" in acts:
+                self.left = True
+            if "right" in acts:
+                self.right = True
+            if "jump" in acts:
+                self.jump = True
 
     def begin_frame(self):
         self.jump_clicked = False
@@ -204,15 +234,7 @@ class TouchControls:
             self._held.pop(key, None)
         else:
             self._held[key] = self._hit(pos, "move")
-
-        self.left = self.right = self.jump = False
-        for acts in self._held.values():
-            if "left" in acts:
-                self.left = True
-            if "right" in acts:
-                self.right = True
-            if "jump" in acts:
-                self.jump = True
+        self._refresh_held()
 
     def draw(self, surf, fonts, show_start=False):
         def btn(rect, label, active):
