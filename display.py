@@ -1,4 +1,4 @@
-"""网页画布按 16:9 铺满；手机竖屏时旋转成横版，触摸按旋转后的画面换算。"""
+"""手机横屏：用独立舞台旋转铺满，并挡住 pygbag 对画布的缩放。"""
 
 import json
 import sys
@@ -17,42 +17,96 @@ _FIT_JS = r"""
     return document.querySelector("canvas") || document.getElementById("canvas") || document.getElementById("pygame");
   }
 
+  function ensureStage() {
+    var c = canvas();
+    if (!c) return null;
+    var stage = document.getElementById("vj-stage");
+    if (!stage) {
+      stage = document.createElement("div");
+      stage.id = "vj-stage";
+      document.body.appendChild(stage);
+    }
+    if (c.parentElement !== stage) stage.appendChild(c);
+    return stage;
+  }
+
   function viewSize() {
-    var vv = window.visualViewport;
-    var sw = (vv && vv.width) || window.innerWidth || document.documentElement.clientWidth;
-    var sh = (vv && vv.height) || window.innerHeight || document.documentElement.clientHeight;
+    var sw = window.innerWidth || document.documentElement.clientWidth || 0;
+    var sh = window.innerHeight || document.documentElement.clientHeight || 0;
+    if (window.visualViewport && window.visualViewport.width && window.visualViewport.height) {
+      sw = window.visualViewport.width;
+      sh = window.visualViewport.height;
+    }
     return { sw: sw, sh: sh };
   }
 
-  function fit() {
+  function wantRotate() {
+    try {
+      var t = (screen.orientation && screen.orientation.type) || "";
+      if (t.indexOf("landscape") >= 0) return false;
+      if (t.indexOf("portrait") >= 0) return true;
+    } catch (e) {}
+    if (typeof window.orientation === "number") return Math.abs(window.orientation) !== 90;
+    try {
+      if (window.matchMedia("(orientation: landscape)").matches) return false;
+      if (window.matchMedia("(orientation: portrait)").matches) return true;
+    } catch (e2) {}
+    var size = viewSize();
+    return size.sw < size.sh;
+  }
+
+  function layout() {
+    var stage = ensureStage();
     var c = canvas();
-    if (!c) return;
+    if (!stage || !c) return;
     var size = viewSize();
     var sw = size.sw, sh = size.sh;
-    // 浏览器仍报竖屏时（手机已横过来也很常见），把 16:9 画面旋转铺满
-    var rotated = sw < sh;
+    var rotated = wantRotate();
     window.__vj.rotated = rotated;
     var s = rotated ? Math.min(sw / GH, sh / GW) : Math.min(sw / GW, sh / GH);
     var w = Math.max(1, Math.round(GW * s));
     var h = Math.max(1, Math.round(GH * s));
-    c.style.cssText = [
-      "position:fixed",
-      "left:" + Math.floor((sw - w) / 2) + "px",
-      "top:" + Math.floor((sh - h) / 2) + "px",
-      "right:auto",
-      "bottom:auto",
-      "margin:0",
-      "width:" + w + "px",
-      "height:" + h + "px",
-      "max-width:none",
-      "max-height:none",
-      "transform:" + (rotated ? "rotate(90deg)" : "none"),
-      "transform-origin:center center",
-      "object-fit:fill",
-      "touch-action:none",
-      "z-index:20",
-      "pointer-events:auto"
-    ].join(";");
+    stage.style.setProperty("position", "fixed", "important");
+    stage.style.setProperty("left", "50%", "important");
+    stage.style.setProperty("top", "50%", "important");
+    stage.style.setProperty("width", w + "px", "important");
+    stage.style.setProperty("height", h + "px", "important");
+    stage.style.setProperty("margin", "0", "important");
+    stage.style.setProperty("padding", "0", "important");
+    stage.style.setProperty("z-index", "9999", "important");
+    stage.style.setProperty("overflow", "hidden", "important");
+    stage.style.setProperty(
+      "transform",
+      rotated ? "translate(-50%,-50%) rotate(90deg)" : "translate(-50%,-50%)",
+      "important"
+    );
+    stage.style.setProperty("transform-origin", "center center", "important");
+    c.style.setProperty("position", "absolute", "important");
+    c.style.setProperty("left", "0", "important");
+    c.style.setProperty("top", "0", "important");
+    c.style.setProperty("width", "100%", "important");
+    c.style.setProperty("height", "100%", "important");
+    c.style.setProperty("max-width", "none", "important");
+    c.style.setProperty("max-height", "none", "important");
+    c.style.setProperty("transform", "none", "important");
+    c.style.setProperty("object-fit", "fill", "important");
+    c.style.setProperty("margin", "0", "important");
+    c.style.setProperty("border", "0", "important");
+    c.style.setProperty("touch-action", "none", "important");
+  }
+
+  function hijackPygbag() {
+    function wrap(name) {
+      try {
+        window[name] = function () { layout(); };
+      } catch (e) {}
+    }
+    wrap("window_resize");
+    wrap("window_resize_2d");
+    wrap("window_resize_3d");
+    try {
+      if (window.vm && window.vm.config) window.vm.config.user_canvas_managed = 0;
+    } catch (e2) {}
   }
 
   function toGame(ev) {
@@ -62,10 +116,7 @@ _FIT_JS = r"""
     if (r.width < 1 || r.height < 1) return null;
     var nx = (ev.clientX - r.left) / r.width;
     var ny = (ev.clientY - r.top) / r.height;
-    if (window.__vj.rotated) {
-      // CSS rotate(90deg)：屏幕左右对应游戏上下，屏幕上下对应游戏左右
-      return { x: ny * GW, y: (1 - nx) * GH };
-    }
+    if (window.__vj.rotated) return { x: ny * GW, y: (1 - nx) * GH };
     return { x: nx * GW, y: ny * GH };
   }
 
@@ -98,7 +149,6 @@ _FIT_JS = r"""
     delete window.__vj.pointers[String(ev.pointerId)];
     dump();
   }
-
   function wrapTouch(t) {
     return { pointerId: "t" + t.identifier, clientX: t.clientX, clientY: t.clientY, cancelable: true, preventDefault: function () {} };
   }
@@ -113,13 +163,19 @@ _FIT_JS = r"""
   function touchUp(ev) {
     for (var i = 0; i < ev.changedTouches.length; i++) up(wrapTouch(ev.changedTouches[i]));
   }
-  function tryLandscape() {
+  function tryWide() {
+    try {
+      var el = document.documentElement;
+      var req = el.requestFullscreen || el.webkitRequestFullscreen || el.webkitRequestFullScreen;
+      if (req) req.call(el);
+    } catch (e) {}
     try {
       var o = screen.orientation || screen.mozOrientation;
       if (o && o.lock) o.lock("landscape").catch(function () {});
-    } catch (e) {}
+    } catch (e2) {}
   }
-  document.addEventListener("pointerdown", function () { tryLandscape(); }, { capture: true });
+
+  document.addEventListener("pointerdown", function () { tryWide(); }, { capture: true });
   document.addEventListener("pointerdown", down, { passive: false, capture: true });
   document.addEventListener("pointermove", move, { passive: false, capture: true });
   document.addEventListener("pointerup", up, { passive: false, capture: true });
@@ -128,10 +184,15 @@ _FIT_JS = r"""
   document.addEventListener("touchmove", touchMove, { passive: false, capture: true });
   document.addEventListener("touchend", touchUp, { passive: false, capture: true });
   document.addEventListener("touchcancel", touchUp, { passive: false, capture: true });
-  window.addEventListener("resize", fit);
-  window.addEventListener("orientationchange", fit);
+  window.addEventListener("resize", layout);
+  window.addEventListener("orientationchange", function () { setTimeout(layout, 50); setTimeout(layout, 300); });
+  if (screen.orientation && screen.orientation.addEventListener) {
+    screen.orientation.addEventListener("change", function () { setTimeout(layout, 50); });
+  }
+  hijackPygbag();
+  setInterval(function () { hijackPygbag(); layout(); }, 400);
   function loop() {
-    fit();
+    layout();
     dump();
     requestAnimationFrame(loop);
   }
@@ -149,17 +210,31 @@ def setup_web_page():
         style = document.createElement("style")
         style.textContent = """
         html,body{
-          margin:0;padding:0;width:100%;height:100%;overflow:hidden;
-          background:#050608;touch-action:none;
-          -webkit-user-select:none;user-select:none;
-          -webkit-touch-callout:none;
+          margin:0 !important;padding:0 !important;
+          width:100% !important;height:100% !important;
+          overflow:hidden !important;background:#050608 !important;
+          touch-action:none !important;
+          -webkit-user-select:none !important;user-select:none !important;
+          position:fixed !important;inset:0 !important;
         }
-        #status,#progress,#lblstatus,.emscripten_border{
-          pointer-events:none !important;
+        #status,#progress,#lblstatus,#infobox,.emscripten_border,#pyconsole,#system,#transfer,#info,#box{
+          display:none !important;pointer-events:none !important;
+        }
+        #vj-stage{
+          position:fixed !important;z-index:9999 !important;
+          left:50% !important;top:50% !important;
+          transform:translate(-50%,-50%);
+        }
+        #vj-stage canvas,canvas.emscripten,#canvas,#pygame{
+          position:absolute !important;left:0 !important;top:0 !important;
+          width:100% !important;height:100% !important;
+          max-width:none !important;max-height:none !important;
+          border:0 !important;padding:0 !important;margin:0 !important;
+          touch-action:none !important;
         }
         """
         document.head.appendChild(style)
-        var meta = document.querySelector('meta[name="viewport"]')
+        meta = document.querySelector('meta[name="viewport"]')
         if not meta:
             meta = document.createElement("meta")
             meta.setAttribute("name", "viewport")
@@ -170,7 +245,10 @@ def setup_web_page():
         )
         document.body.style.margin = "0"
         document.body.style.overflow = "hidden"
-
+        try:
+            window.vm.config.user_canvas_managed = 0
+        except Exception:
+            pass
         script = document.createElement("script")
         script.textContent = _FIT_JS
         document.body.appendChild(script)

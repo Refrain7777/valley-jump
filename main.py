@@ -14,8 +14,8 @@ async def main():
     pygame.mixer.pre_init(22050, -16, 1, 512)
     pygame.init()
     pygame.display.set_caption("山谷跳跃")
-    setup_web_page()
     screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
+    setup_web_page()
     if hasattr(pygame.key, "stop_text_input"):
         pygame.key.stop_text_input()
 
