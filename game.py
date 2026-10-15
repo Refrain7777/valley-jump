@@ -127,9 +127,11 @@ class Game:
         feet = actor.rect.move(0, 1)
         actor.on_ground = any(feet.colliderect(t) for t in self.tiles_for(feet))
 
-    def handle_events(self):
+    def handle_events(self, events=None):
         self.touch.begin_frame()
-        for event in pygame.event.get():
+        if events is None:
+            events = pygame.event.get()
+        for event in events:
             if event.type == pygame.QUIT:
                 self.running = False
             elif event.type == pygame.KEYDOWN:

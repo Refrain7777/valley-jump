@@ -1,5 +1,8 @@
 """木质 HUD、对话框、手机虚拟按键。"""
 
+import json
+import pathlib
+
 import pygame
 
 SCREEN_W = 960
@@ -12,20 +15,80 @@ GOLD = (240, 196, 64)
 INK = (48, 32, 18)
 
 
+def _asset_path(name):
+    for base in (
+        pathlib.Path(__file__).resolve().parent / "assets",
+        pathlib.Path("assets"),
+        pathlib.Path(".") / "assets",
+    ):
+        path = base / name
+        try:
+            if path.exists():
+                return str(path)
+        except Exception:
+            continue
+    return "assets/" + name
+
+
+class AtlasFont:
+    """网页/手机没有系统中文字体时，用打包进去的文字图集绘制。"""
+
+    def __init__(self, atlas, glyphs, px):
+        self.atlas = atlas
+        self.glyphs = glyphs
+        self.scale = px / 32.0
+
+    def render(self, text, _aa, color):
+        text = "" if text is None else str(text)
+        if not text:
+            return pygame.Surface((1, 1), pygame.SRCALPHA)
+        parts = []
+        width = 0
+        height = 1
+        for ch in text:
+            g = self.glyphs.get(ch) or self.glyphs.get("?") or self.glyphs.get(" ")
+            if not g:
+                continue
+            w = max(1, int(g["w"] * self.scale))
+            h = max(1, int(g["h"] * self.scale))
+            src = pygame.Rect(g["x"], g["y"], g["w"], g["h"])
+            piece = pygame.Surface((g["w"], g["h"]), pygame.SRCALPHA)
+            piece.blit(self.atlas, (0, 0), src)
+            if (w, h) != (g["w"], g["h"]):
+                piece = pygame.transform.scale(piece, (w, h))
+            piece.fill(color[:3] + (255,), special_flags=pygame.BLEND_RGB_MULT)
+            parts.append(piece)
+            width += w
+            height = max(height, h)
+        surf = pygame.Surface((max(1, width), height), pygame.SRCALPHA)
+        x = 0
+        for piece in parts:
+            surf.blit(piece, (x, height - piece.get_height()))
+            x += piece.get_width()
+        return surf
+
+
 def load_font(size):
-    candidates = (
-        "microsoftyahei",
-        "msyh",
-        "simhei",
-        "simsun",
-        "notosanscjksc",
-        "arialunicode",
-    )
-    for name in candidates:
-        path = pygame.font.match_font(name)
-        if path:
-            return pygame.font.Font(path, size)
-    return pygame.font.Font(None, size)
+    try:
+        atlas = pygame.image.load(_asset_path("glyphs.png"))
+        if hasattr(atlas, "convert_alpha"):
+            atlas = atlas.convert_alpha()
+        data = json.loads(pathlib.Path(_asset_path("glyphs.json")).read_text(encoding="utf-8"))
+        return AtlasFont(atlas, data["glyphs"], size)
+    except Exception:
+        candidates = (
+            "microsoftyahei",
+            "msyh",
+            "simhei",
+            "simsun",
+            "notosanscjksc",
+            "arialunicode",
+        )
+        for name in candidates:
+            path = pygame.font.match_font(name)
+            if path:
+                return pygame.font.Font(path, size)
+        return pygame.font.Font(None, size)
 
 
 class Fonts:
