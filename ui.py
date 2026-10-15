@@ -132,13 +132,13 @@ class TouchControls:
 
     def layout(self, screen_size):
         w, h = screen_size
-        btn = 78
-        gap = 14
-        y = h - 22 - btn
-        self.left_r = pygame.Rect(18, y, btn, btn)
-        self.right_r = pygame.Rect(18 + btn + gap, y, btn, btn)
-        self.jump_r = pygame.Rect(w - 18 - btn, y, btn, btn)
-        self.shoot_r = pygame.Rect(w - 18 - btn, y - btn - 12, btn, btn)
+        btn = 96
+        gap = 16
+        y = h - 16 - btn
+        self.left_r = pygame.Rect(16, y, btn, btn)
+        self.right_r = pygame.Rect(16 + btn + gap, y, btn, btn)
+        self.jump_r = pygame.Rect(w - 16 - btn, y, btn, btn)
+        self.shoot_r = pygame.Rect(w - 16 - btn, y - btn - 12, btn, btn)
         self.mute_r = pygame.Rect(w - 78, 12, 64, 36)
         self.shop_r = pygame.Rect(w - 150, 12, 64, 36)
         self.start_r = pygame.Rect(w // 2 - 110, h // 2 + 70, 220, 52)
@@ -186,7 +186,8 @@ class TouchControls:
 
         if event.type not in down_types + up_types + move_types:
             return
-        if event.type == pygame.MOUSEBUTTONDOWN and getattr(event, "button", 1) != 1:
+        # 手机浏览器常把点击报成 button=0，不能只接受 1
+        if event.type == pygame.MOUSEBUTTONDOWN and getattr(event, "button", 1) not in (0, 1):
             return
         if event.type == pygame.MOUSEMOTION and not (event.buttons and event.buttons[0]):
             return
@@ -195,7 +196,7 @@ class TouchControls:
         if pos is None:
             return
 
-        key = getattr(event, "finger_id", "mouse")
+        key = getattr(event, "finger_id", getattr(event, "fingerId", "mouse"))
         if event.type in down_types:
             acts = self._hit(pos, "down")
             self._held[key] = acts
