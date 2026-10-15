@@ -77,7 +77,7 @@ _FIT_JS = r"""
     stage.style.setProperty("overflow", "hidden", "important");
     stage.style.setProperty(
       "transform",
-      rotated ? "translate(-50%,-50%) rotate(90deg)" : "translate(-50%,-50%)",
+      rotated ? "translate(-50%,-50%) rotate(-90deg)" : "translate(-50%,-50%)",
       "important"
     );
     stage.style.setProperty("transform-origin", "center center", "important");
@@ -116,7 +116,10 @@ _FIT_JS = r"""
     if (r.width < 1 || r.height < 1) return null;
     var nx = (ev.clientX - r.left) / r.width;
     var ny = (ev.clientY - r.top) / r.height;
-    if (window.__vj.rotated) return { x: ny * GW, y: (1 - nx) * GH };
+    if (window.__vj.rotated) {
+      // rotate(-90deg)：手机顺时针横过来后，点的位置和画面一致
+      return { x: (1 - ny) * GW, y: nx * GH };
+    }
     return { x: nx * GW, y: ny * GH };
   }
 
@@ -149,20 +152,6 @@ _FIT_JS = r"""
     delete window.__vj.pointers[String(ev.pointerId)];
     dump();
   }
-  function wrapTouch(t) {
-    return { pointerId: "t" + t.identifier, clientX: t.clientX, clientY: t.clientY, cancelable: true, preventDefault: function () {} };
-  }
-  function touchDown(ev) {
-    if (ev.cancelable) ev.preventDefault();
-    for (var i = 0; i < ev.changedTouches.length; i++) down(wrapTouch(ev.changedTouches[i]));
-  }
-  function touchMove(ev) {
-    if (ev.cancelable) ev.preventDefault();
-    for (var i = 0; i < ev.changedTouches.length; i++) move(wrapTouch(ev.changedTouches[i]));
-  }
-  function touchUp(ev) {
-    for (var i = 0; i < ev.changedTouches.length; i++) up(wrapTouch(ev.changedTouches[i]));
-  }
   function quiet(p) {
     try {
       if (p && typeof p.catch === "function") p.catch(function () {});
@@ -184,15 +173,38 @@ _FIT_JS = r"""
     } catch (e2) {}
   }
 
+  function clearAll() {
+    window.__vj.pointers = {};
+    dump();
+  }
   document.addEventListener("pointerdown", function () { tryWide(); }, { capture: true });
   document.addEventListener("pointerdown", down, { passive: false, capture: true });
   document.addEventListener("pointermove", move, { passive: false, capture: true });
   document.addEventListener("pointerup", up, { passive: false, capture: true });
   document.addEventListener("pointercancel", up, { passive: false, capture: true });
-  document.addEventListener("touchstart", touchDown, { passive: false, capture: true });
-  document.addEventListener("touchmove", touchMove, { passive: false, capture: true });
-  document.addEventListener("touchend", touchUp, { passive: false, capture: true });
-  document.addEventListener("touchcancel", touchUp, { passive: false, capture: true });
+  window.addEventListener("blur", clearAll);
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) clearAll();
+  });
+  if (!window.PointerEvent) {
+    function wrapTouch(t) {
+      return { pointerId: "t" + t.identifier, clientX: t.clientX, clientY: t.clientY, cancelable: true, preventDefault: function () {} };
+    }
+    document.addEventListener("touchstart", function (ev) {
+      if (ev.cancelable) ev.preventDefault();
+      for (var i = 0; i < ev.changedTouches.length; i++) down(wrapTouch(ev.changedTouches[i]));
+    }, { passive: false, capture: true });
+    document.addEventListener("touchmove", function (ev) {
+      if (ev.cancelable) ev.preventDefault();
+      for (var i = 0; i < ev.changedTouches.length; i++) move(wrapTouch(ev.changedTouches[i]));
+    }, { passive: false, capture: true });
+    document.addEventListener("touchend", function (ev) {
+      for (var i = 0; i < ev.changedTouches.length; i++) up(wrapTouch(ev.changedTouches[i]));
+    }, { passive: false, capture: true });
+    document.addEventListener("touchcancel", function (ev) {
+      for (var i = 0; i < ev.changedTouches.length; i++) up(wrapTouch(ev.changedTouches[i]));
+    }, { passive: false, capture: true });
+  }
   window.addEventListener("resize", layout);
   window.addEventListener("orientationchange", function () { setTimeout(layout, 50); setTimeout(layout, 300); });
   if (screen.orientation && screen.orientation.addEventListener) {

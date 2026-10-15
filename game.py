@@ -1,5 +1,7 @@
 """关卡逻辑：无限生成、金币射击、碰撞。"""
 
+import sys
+
 import pygame
 
 from audio import Audio
@@ -14,8 +16,9 @@ from ui import (
     Fonts,
     TouchControls,
     draw_end,
+    draw_help,
     draw_hud,
-    draw_pc_hints,
+    draw_ime_warn,
     draw_shop,
     draw_title,
     shop_item_rects,
@@ -132,18 +135,21 @@ class Game:
         self.touch.begin_frame()
         if events is None:
             events = pygame.event.get()
-        self.touch.ingest_web_pointers(poll_web_pointers())
+        if sys.platform == "emscripten":
+            self.touch.ingest_web_pointers(poll_web_pointers())
         for event in events:
             if event.type == pygame.QUIT:
                 self.running = False
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    if self.state == "shop":
+                    if self.state in ("shop", "help"):
                         self.state = "play"
                     else:
                         self.running = False
                 elif event.key == pygame.K_b:
                     self._toggle_shop()
+                elif event.key == pygame.K_h:
+                    self._toggle_help()
                 elif event.key == pygame.K_m:
                     self.audio.toggle_mute()
                 elif self.state == "shop" and event.key in (
@@ -166,28 +172,29 @@ class Game:
                     self._try_jump()
                 elif event.key in (pygame.K_j, pygame.K_k, pygame.K_f):
                     self._try_shoot()
-            elif self.state == "shop" and event.type in (
-                pygame.MOUSEBUTTONDOWN,
-                pygame.FINGERDOWN,
-            ):
-                if event.type == pygame.FINGERDOWN:
-                    pos = (
-                        int(event.x * self.screen.get_width()),
-                        int(event.y * self.screen.get_height()),
-                    )
-                else:
-                    pos = event.pos
-                self._shop_click(pos)
+            elif self.state == "shop" and event.type == pygame.MOUSEBUTTONDOWN:
+                self._shop_click(event.pos)
+            elif self.state == "help" and event.type == pygame.MOUSEBUTTONDOWN:
+                self.state = "play"
             self.touch.handle(event, self.screen.get_size())
 
         if self.touch.mute_clicked:
             self.audio.toggle_mute()
             return
+        if self.touch.help_clicked:
+            self._toggle_help()
+            return
         if self.touch.shop_clicked:
             self._toggle_shop()
             return
 
+        if self.state == "help":
+            if self.touch.down_pos and not self.touch.help_r.collidepoint(self.touch.down_pos):
+                self.state = "play"
+            return
         if self.state == "shop":
+            if self.touch.down_pos:
+                self._shop_click(self.touch.down_pos)
             return
         if self.state != "play":
             if self.touch.start_clicked or self.touch.jump_clicked:
@@ -362,6 +369,16 @@ class Game:
             self.state = "shop"
         elif self.state == "shop":
             self.state = "play"
+        elif self.state == "help":
+            self.state = "shop"
+
+    def _toggle_help(self):
+        if self.state == "play":
+            self.state = "help"
+        elif self.state == "help":
+            self.state = "play"
+        elif self.state == "shop":
+            self.state = "help"
 
     def _shop_click(self, pos):
         for kind, rect in shop_item_rects():
@@ -462,6 +479,7 @@ class Game:
             self.audio.muted,
             self.touch.mute_r,
             self.touch.shop_r,
+            self.touch.help_r,
             dist,
         )
         if self.state == "title":
@@ -477,6 +495,9 @@ class Game:
                 int(self.player.hp),
                 self.player.max_hp,
             )
+        elif self.state == "help":
+            self.touch.draw(self.screen, self.fonts, show_start=False)
+            draw_help(self.screen, self.fonts)
         elif self.state == "lose":
             draw_end(
                 self.screen,
@@ -487,5 +508,5 @@ class Game:
             self.touch.draw(self.screen, self.fonts, show_start=True)
         else:
             self.touch.draw(self.screen, self.fonts, show_start=False)
-        if self.state != "shop":
-            draw_pc_hints(self.screen, self.fonts, self.ime_blocked)
+        if self.state not in ("shop", "help"):
+            draw_ime_warn(self.screen, self.fonts, self.ime_blocked)

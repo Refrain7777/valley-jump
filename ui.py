@@ -2,6 +2,7 @@
 
 import json
 import pathlib
+import sys
 
 import pygame
 
@@ -128,6 +129,8 @@ class TouchControls:
         self.start_clicked = False
         self.mute_clicked = False
         self.shop_clicked = False
+        self.help_clicked = False
+        self.down_pos = None
         self._held = {}  # finger_id / 'mouse' -> action
 
     def layout(self, screen_size):
@@ -141,6 +144,7 @@ class TouchControls:
         self.shoot_r = pygame.Rect(w - 16 - btn, y - btn - 12, btn, btn)
         self.mute_r = pygame.Rect(w - 78, 12, 64, 36)
         self.shop_r = pygame.Rect(w - 150, 12, 64, 36)
+        self.help_r = pygame.Rect(w - 222, 12, 64, 36)
         self.start_r = pygame.Rect(w // 2 - 110, h // 2 + 70, 220, 52)
 
     def _pos_from_event(self, event, screen_size):
@@ -156,30 +160,43 @@ class TouchControls:
 
     def _hit(self, pos, state):
         actions = []
-        # 手机点按区域比绘制按钮略大，好点一些
-        pad = 12
-        if self.left_r.inflate(pad, pad).collidepoint(pos):
-            actions.append("left")
-        if self.right_r.inflate(pad, pad).collidepoint(pos):
-            actions.append("right")
-        if self.jump_r.inflate(pad, pad).collidepoint(pos):
-            actions.append("jump")
+        pads = (
+            ("jump", self.jump_r),
+            ("shoot", self.shoot_r),
+            ("left", self.left_r),
+            ("right", self.right_r),
+        )
+        best = None
+        best_d = 10 ** 9
+        for name, rect in pads:
+            if not rect.collidepoint(pos):
+                continue
+            cx, cy = rect.center
+            dist = (pos[0] - cx) ** 2 + (pos[1] - cy) ** 2
+            if dist < best_d:
+                best_d = dist
+                best = name
+        if state == "down":
+            self.down_pos = pos
+        if best:
+            actions.append(best)
             if state == "down":
-                self.jump_clicked = True
-        if self.shoot_r.inflate(pad, pad).collidepoint(pos):
-            actions.append("shoot")
-            if state == "down":
-                self.shoot_clicked = True
-        if self.mute_r.inflate(pad, pad).collidepoint(pos) and state == "down":
+                if best == "jump":
+                    self.jump_clicked = True
+                elif best == "shoot":
+                    self.shoot_clicked = True
+        if self.mute_r.collidepoint(pos) and state == "down":
             self.mute_clicked = True
-        if self.shop_r.inflate(pad, pad).collidepoint(pos) and state == "down":
+        if self.shop_r.collidepoint(pos) and state == "down":
             self.shop_clicked = True
-        if self.start_r.inflate(pad, pad).collidepoint(pos) and state == "down":
+        if self.help_r.collidepoint(pos) and state == "down":
+            self.help_clicked = True
+        if self.start_r.collidepoint(pos) and state == "down":
             self.start_clicked = True
         return actions
 
     def ingest_web_pointers(self, pointers):
-        """用浏览器换算后的指针更新按键，不依赖 pygame 触摸事件。"""
+        """网页只认浏览器指针，松手后立刻清掉，避免按键卡住。"""
         live = set()
         for item in pointers:
             pid = f"js-{item['id']}"
@@ -188,7 +205,7 @@ class TouchControls:
             state = "move" if pid in self._held else "down"
             self._held[pid] = self._hit(pos, state)
         for key in list(self._held):
-            if str(key).startswith("js-") and key not in live:
+            if key not in live:
                 self._held.pop(key, None)
         self._refresh_held()
 
@@ -208,8 +225,12 @@ class TouchControls:
         self.start_clicked = False
         self.mute_clicked = False
         self.shop_clicked = False
+        self.help_clicked = False
+        self.down_pos = None
 
     def handle(self, event, screen_size):
+        if sys.platform == "emscripten":
+            return
         down_types = (pygame.MOUSEBUTTONDOWN, pygame.FINGERDOWN)
         up_types = (pygame.MOUSEBUTTONUP, pygame.FINGERUP)
         move_types = (pygame.FINGERMOTION, pygame.MOUSEMOTION)
@@ -256,7 +277,7 @@ class TouchControls:
             blit_text(surf, fonts.mid, "开始游戏", CREAM, center=self.start_r.center)
 
 
-def draw_hud(surf, fonts, coins, hp, max_hp, muted, mute_rect, shop_rect, distance):
+def draw_hud(surf, fonts, coins, hp, max_hp, muted, mute_rect, shop_rect, help_rect, distance):
     wood_panel(surf, pygame.Rect(12, 10, 150, 48))
     blit_text(surf, fonts.small, f"金币  {coins}", CREAM, topleft=(22, 24))
 
@@ -272,6 +293,8 @@ def draw_hud(surf, fonts, coins, hp, max_hp, muted, mute_rect, shop_rect, distan
     wood_panel(surf, pygame.Rect(400, 10, 160, 48))
     blit_text(surf, fonts.small, f"路程  {distance}m", CREAM, topleft=(412, 24))
 
+    wood_panel(surf, help_rect)
+    blit_text(surf, fonts.small, "说明", CREAM, center=help_rect.center)
     wood_panel(surf, shop_rect)
     blit_text(surf, fonts.small, "商店", CREAM, center=shop_rect.center)
     wood_panel(surf, mute_rect)
@@ -291,28 +314,38 @@ def draw_title(surf, fonts):
     blit_text(surf, fonts.small, "手机：左下方向，右下跳 / 攻", CREAM, center=(SCREEN_W // 2, 282))
 
 
-def draw_pc_hints(surf, fonts, ime_on):
-    """电脑模式常驻提示：WASD，以及中文输入时的英文切换提醒。"""
-    bar = pygame.Rect(180, SCREEN_H - 52, 600, 36)
-    wood_panel(surf, bar, 2)
+def draw_ime_warn(surf, fonts, ime_on):
+    if not ime_on:
+        return
+    warn = pygame.Rect(180, 64, 600, 40)
+    pygame.draw.rect(surf, (160, 60, 40), warn, border_radius=8)
+    pygame.draw.rect(surf, CREAM, warn, 2, border_radius=8)
     blit_text(
         surf,
         fonts.small,
-        "电脑：WASD 移动  空格跳  J 攻击  B 商店",
+        "检测到中文输入：请切到英文（Shift 或任务栏「中」→「英」）",
         CREAM,
-        center=bar.center,
+        center=warn.center,
     )
-    if ime_on:
-        warn = pygame.Rect(180, 64, 600, 40)
-        pygame.draw.rect(surf, (160, 60, 40), warn, border_radius=8)
-        pygame.draw.rect(surf, CREAM, warn, 2, border_radius=8)
-        blit_text(
-            surf,
-            fonts.small,
-            "检测到中文输入：请切到英文（Shift 或任务栏「中」→「英」）",
-            CREAM,
-            center=warn.center,
-        )
+
+
+def draw_help(surf, fonts):
+    overlay = pygame.Surface(surf.get_size(), pygame.SRCALPHA)
+    overlay.fill((20, 16, 10, 150))
+    surf.blit(overlay, (0, 0))
+    box = pygame.Rect(190, 90, 580, 340)
+    wood_panel(surf, box, 4)
+    blit_text(surf, fonts.big, "操作说明", GOLD, center=(SCREEN_W // 2, 130))
+    lines = (
+        "电脑：WASD 移动，空格 / W 跳跃",
+        "电脑：J 攻击，B 商店，H 说明",
+        "手机：左下方向，右下跳 / 攻",
+        "点空白处或再点「说明」关闭",
+    )
+    y = 180
+    for line in lines:
+        blit_text(surf, fonts.small, line, CREAM, center=(SCREEN_W // 2, y))
+        y += 36
 
 
 SHOP_ITEMS = (
