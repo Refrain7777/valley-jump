@@ -1,4 +1,4 @@
-"""手机横屏：用独立舞台旋转铺满，并挡住 pygbag 对画布的缩放。"""
+"""手机视口锁死时，按机身朝向把画面转正，左右横屏都能翻转。"""
 
 import json
 import sys
@@ -33,42 +33,164 @@ _FIT_JS = r"""
   function viewSize() {
     var sw = window.innerWidth || document.documentElement.clientWidth || 0;
     var sh = window.innerHeight || document.documentElement.clientHeight || 0;
-    if (window.visualViewport && window.visualViewport.width && window.visualViewport.height) {
-      sw = window.visualViewport.width;
-      sh = window.visualViewport.height;
+    var ox = 0, oy = 0;
+    var vv = window.visualViewport;
+    if (vv && vv.width && vv.height) {
+      sw = vv.width;
+      sh = vv.height;
+      ox = vv.offsetLeft || 0;
+      oy = vv.offsetTop || 0;
     }
-    return { sw: sw, sh: sh };
+    return { sw: sw, sh: sh, ox: ox, oy: oy };
   }
 
-  function wantRotate() {
+  function ensureSafeProbe() {
+    var probe = document.getElementById("vj-safe");
+    if (!probe) {
+      probe = document.createElement("div");
+      probe.id = "vj-safe";
+      document.body.appendChild(probe);
+    }
+    return probe;
+  }
+
+  function safeInsets() {
+    var probe = ensureSafeProbe();
+    var cs = window.getComputedStyle(probe);
+    function n(v) {
+      var x = parseFloat(v);
+      return x > 0 && isFinite(x) ? x : 0;
+    }
+    return {
+      l: n(cs.paddingLeft),
+      t: n(cs.paddingTop),
+      r: n(cs.paddingRight),
+      b: n(cs.paddingBottom)
+    };
+  }
+
+  function isMobile() {
     try {
-      var t = (screen.orientation && screen.orientation.type) || "";
-      if (t.indexOf("landscape") >= 0) return false;
-      if (t.indexOf("portrait") >= 0) return true;
+      if (window.matchMedia("(pointer: coarse)").matches) return true;
     } catch (e) {}
-    if (typeof window.orientation === "number") return Math.abs(window.orientation) !== 90;
+    return (navigator.maxTouchPoints || 0) > 0;
+  }
+
+  function screenAngle() {
     try {
-      if (window.matchMedia("(orientation: landscape)").matches) return false;
-      if (window.matchMedia("(orientation: portrait)").matches) return true;
-    } catch (e2) {}
-    var size = viewSize();
-    return size.sw < size.sh;
+      var o = screen.orientation;
+      if (o && typeof o.angle === "number" && isFinite(o.angle)) {
+        return ((o.angle % 360) + 360) % 360;
+      }
+    } catch (e) {}
+    // window.orientation 正值是逆时针。逆时针 90° 与 screen.orientation.angle 的 90 一致。
+    if (typeof window.orientation === "number") {
+      var w = window.orientation;
+      if (w === -90) return 270;
+      if (w < 0) w += 360;
+      return ((w % 360) + 360) % 360;
+    }
+    return null;
+  }
+
+  function commitQuadrant(q) {
+    if (q == null) return;
+    var now = Date.now();
+    if (q !== window.__vj.pendingQ) {
+      window.__vj.pendingQ = q;
+      window.__vj.pendingAt = now;
+      return;
+    }
+    if (window.__vj.q == null || now - window.__vj.pendingAt >= 80) window.__vj.q = q;
+  }
+
+  function onOrient(ev) {
+    if (ev.beta == null || ev.gamma == null) return;
+    var b = ev.beta, g = ev.gamma;
+    var ab = Math.abs(b), ag = Math.abs(g);
+    if (ab < 18 && ag < 18) return;
+    var q = null;
+    // 0 竖屏正放，1 顺时针横屏，2 倒竖屏，3 逆时针横屏
+    if (ag > ab + 10 && ag > 28) q = g > 0 ? 1 : 3;
+    else if (ab > ag + 10 && ab > 28) q = b > 0 ? 0 : 2;
+    commitQuadrant(q);
+  }
+
+  function computeRot() {
+    if (!isMobile()) return 0;
+    var q = window.__vj.q;
+    // 还没拿到机身方向时先不要转。有的浏览器一转，开始键和手指就对不上，人进不了游戏。
+    if (q == null) return 0;
+    var angle = screenAngle();
+    if (angle == null) {
+      var size2 = viewSize();
+      angle = size2.sw >= size2.sh ? 90 : 0;
+    }
+    angle = (Math.round(angle / 90) * 90) % 360;
+    var size3 = viewSize();
+    var wide = size3.sw > size3.sh * 1.05;
+    var tall = size3.sh > size3.sw * 1.05;
+    var angleWide = angle === 90 || angle === 270;
+    // 视口像素没跟着方向数字走时，按看到的宽高来补，否则翻转会被算成 0。
+    if ((wide && !angleWide) || (tall && angleWide)) angle = wide ? 90 : 0;
+    var sky = (360 - q * 90) % 360;
+    return (sky - angle + 360) % 360;
+  }
+
+  function listenMotion() {
+    if (window.__vj.motionListening) return;
+    window.__vj.motionListening = true;
+    window.addEventListener("deviceorientation", onOrient, true);
+  }
+
+  function enableMotion() {
+    if (window.__vj.motionAsked) return;
+    window.__vj.motionAsked = true;
+    var D = window.DeviceOrientationEvent;
+    if (D && typeof D.requestPermission === "function") {
+      try {
+        var p = D.requestPermission();
+        if (p && typeof p.then === "function") {
+          p.then(function (s) {
+            if (s === "granted") listenMotion();
+          }, function () {});
+        }
+      } catch (e) {}
+      return;
+    }
+    listenMotion();
   }
 
   function layout() {
+    try { layoutBody(); } catch (e) {}
+  }
+
+  function layoutBody() {
     var stage = ensureStage();
     var c = canvas();
     if (!stage || !c) return;
     var size = viewSize();
-    var sw = size.sw, sh = size.sh;
-    var rotated = wantRotate();
-    window.__vj.rotated = rotated;
-    var s = rotated ? Math.min(sw / GH, sh / GW) : Math.min(sw / GW, sh / GH);
+    var inset = safeInsets();
+    var padL = inset.l, padR = inset.r, padT = inset.t, padB = inset.b;
+    // 系统不报安全区时，横屏圆角和底部手势条仍会挡住边上的按键
+    if (padL + padR < 8 && size.sw > size.sh) {
+      padL += 12;
+      padR += 12;
+    }
+    if (padB < 8) padB += 10;
+    var sw = Math.max(1, size.sw - padL - padR);
+    var sh = Math.max(1, size.sh - padT - padB);
+    var rot = (computeRot() + (window.__vj.userFlip || 0)) % 360;
+    window.__vj.rot = rot;
+    var sideways = rot === 90 || rot === 270;
+    var s = sideways ? Math.min(sw / GH, sh / GW) : Math.min(sw / GW, sh / GH);
     var w = Math.max(1, Math.round(GW * s));
     var h = Math.max(1, Math.round(GH * s));
+    var cx = size.ox + padL + sw / 2;
+    var cy = size.oy + padT + sh / 2;
     stage.style.setProperty("position", "fixed", "important");
-    stage.style.setProperty("left", "50%", "important");
-    stage.style.setProperty("top", "50%", "important");
+    stage.style.setProperty("left", cx + "px", "important");
+    stage.style.setProperty("top", cy + "px", "important");
     stage.style.setProperty("width", w + "px", "important");
     stage.style.setProperty("height", h + "px", "important");
     stage.style.setProperty("margin", "0", "important");
@@ -77,7 +199,7 @@ _FIT_JS = r"""
     stage.style.setProperty("overflow", "hidden", "important");
     stage.style.setProperty(
       "transform",
-      rotated ? "translate(-50%,-50%) rotate(-90deg)" : "translate(-50%,-50%)",
+      "translate(-50%,-50%) rotate(" + rot + "deg)",
       "important"
     );
     stage.style.setProperty("transform-origin", "center center", "important");
@@ -116,10 +238,10 @@ _FIT_JS = r"""
     if (r.width < 1 || r.height < 1) return null;
     var nx = (ev.clientX - r.left) / r.width;
     var ny = (ev.clientY - r.top) / r.height;
-    if (window.__vj.rotated) {
-      // rotate(-90deg)：手机顺时针横过来后，点的位置和画面一致
-      return { x: (1 - ny) * GW, y: nx * GH };
-    }
+    var rot = window.__vj.rot || 0;
+    if (rot === 90) return { x: ny * GW, y: (1 - nx) * GH };
+    if (rot === 270) return { x: (1 - ny) * GW, y: nx * GH };
+    if (rot === 180) return { x: (1 - nx) * GW, y: (1 - ny) * GH };
     return { x: nx * GW, y: ny * GH };
   }
 
@@ -132,12 +254,25 @@ _FIT_JS = r"""
     window.__vj.json = JSON.stringify({ p: list });
   }
 
+  function gestureDup(ev) {
+    var now = Date.now();
+    var x = ev.clientX || 0, y = ev.clientY || 0;
+    var last = window.__vj.gd;
+    if (last && (now - last.t) < 50 && Math.abs(last.x - x) < 12 && Math.abs(last.y - y) < 12) return true;
+    window.__vj.gd = { t: now, x: x, y: y };
+    return false;
+  }
   function down(ev) {
-    var p = toGame(ev);
-    if (!p) return;
-    if (ev.cancelable) ev.preventDefault();
-    window.__vj.pointers[String(ev.pointerId)] = { id: ev.pointerId, x: p.x, y: p.y };
-    dump();
+    try {
+      if (gestureDup(ev)) return;
+      var p = toGame(ev);
+      if (!p) return;
+      // 只在点「翻转」时才问方向权限。一进页面就问，微信 / QQ 会白屏或直接退出。
+      if (p.x >= 578 && p.x <= 650 && p.y >= 12 && p.y <= 48) enableMotion();
+      if (ev.cancelable) ev.preventDefault();
+      window.__vj.pointers[String(ev.pointerId)] = { id: ev.pointerId, x: p.x, y: p.y };
+      dump();
+    } catch (e) {}
   }
   function move(ev) {
     var key = String(ev.pointerId);
@@ -152,63 +287,76 @@ _FIT_JS = r"""
     delete window.__vj.pointers[String(ev.pointerId)];
     dump();
   }
-  function quiet(p) {
+  function on(el, name, fn) {
     try {
-      if (p && typeof p.catch === "function") p.catch(function () {});
-    } catch (e) {}
-  }
-  function tryWide() {
-    // Optional. Mobile denies fullscreen / orientation lock with
-    // "Permissions check failed"; pygbag alerts any unhandled rejection.
-    if (window.__vj.wideDone) return;
-    window.__vj.wideDone = true;
-    try {
-      var el = document.documentElement;
-      var req = el.requestFullscreen || el.webkitRequestFullscreen || el.webkitRequestFullScreen;
-      if (req) quiet(req.call(el));
-    } catch (e) {}
-    try {
-      var o = screen.orientation || screen.mozOrientation;
-      if (o && o.lock) quiet(o.lock("landscape"));
-    } catch (e2) {}
+      el.addEventListener(name, fn, { passive: false, capture: true });
+    } catch (e) {
+      try { el.addEventListener(name, fn, true); } catch (e2) {}
+    }
   }
 
   function clearAll() {
     window.__vj.pointers = {};
     dump();
   }
-  document.addEventListener("pointerdown", function () { tryWide(); }, { capture: true });
-  document.addEventListener("pointerdown", down, { passive: false, capture: true });
-  document.addEventListener("pointermove", move, { passive: false, capture: true });
-  document.addEventListener("pointerup", up, { passive: false, capture: true });
-  document.addEventListener("pointercancel", up, { passive: false, capture: true });
+  function fromTouch(t, ev) {
+    return {
+      pointerId: "t" + t.identifier,
+      clientX: t.clientX,
+      clientY: t.clientY,
+      cancelable: true,
+      preventDefault: function () { if (ev.cancelable) ev.preventDefault(); }
+    };
+  }
+  function isFinger(ev) {
+    if (ev.pointerType === "mouse" || ev.pointerType === "pen") return false;
+    return isMobile();
+  }
+  // 部分手机浏览器有 PointerEvent，但点下去没反应。手指一律走 touch。
+  on(document, "pointerdown", function (ev) {
+    if (isFinger(ev)) return;
+    down(ev);
+  });
+  on(document, "pointermove", function (ev) {
+    if (isFinger(ev)) return;
+    move(ev);
+  });
+  on(document, "pointerup", function (ev) {
+    if (isFinger(ev)) return;
+    up(ev);
+  });
+  on(document, "pointercancel", function (ev) {
+    if (isFinger(ev)) return;
+    up(ev);
+  });
+  on(document, "touchstart", function (ev) {
+    for (var i = 0; i < ev.changedTouches.length; i++) down(fromTouch(ev.changedTouches[i], ev));
+  });
+  on(document, "touchmove", function (ev) {
+    for (var i = 0; i < ev.changedTouches.length; i++) move(fromTouch(ev.changedTouches[i], ev));
+  });
+  on(document, "touchend", function (ev) {
+    for (var i = 0; i < ev.changedTouches.length; i++) up(fromTouch(ev.changedTouches[i], ev));
+  });
+  on(document, "touchcancel", function (ev) {
+    for (var i = 0; i < ev.changedTouches.length; i++) up(fromTouch(ev.changedTouches[i], ev));
+  });
   window.addEventListener("blur", clearAll);
   document.addEventListener("visibilitychange", function () {
     if (document.hidden) clearAll();
   });
-  if (!window.PointerEvent) {
-    function wrapTouch(t) {
-      return { pointerId: "t" + t.identifier, clientX: t.clientX, clientY: t.clientY, cancelable: true, preventDefault: function () {} };
-    }
-    document.addEventListener("touchstart", function (ev) {
-      if (ev.cancelable) ev.preventDefault();
-      for (var i = 0; i < ev.changedTouches.length; i++) down(wrapTouch(ev.changedTouches[i]));
-    }, { passive: false, capture: true });
-    document.addEventListener("touchmove", function (ev) {
-      if (ev.cancelable) ev.preventDefault();
-      for (var i = 0; i < ev.changedTouches.length; i++) move(wrapTouch(ev.changedTouches[i]));
-    }, { passive: false, capture: true });
-    document.addEventListener("touchend", function (ev) {
-      for (var i = 0; i < ev.changedTouches.length; i++) up(wrapTouch(ev.changedTouches[i]));
-    }, { passive: false, capture: true });
-    document.addEventListener("touchcancel", function (ev) {
-      for (var i = 0; i < ev.changedTouches.length; i++) up(wrapTouch(ev.changedTouches[i]));
-    }, { passive: false, capture: true });
-  }
   window.addEventListener("resize", layout);
   window.addEventListener("orientationchange", function () { setTimeout(layout, 50); setTimeout(layout, 300); });
+  window.addEventListener("pageshow", layout);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", layout);
+    window.visualViewport.addEventListener("scroll", layout);
+  }
   if (screen.orientation && screen.orientation.addEventListener) {
     screen.orientation.addEventListener("change", function () { setTimeout(layout, 50); });
+  }
+  if (!(window.DeviceOrientationEvent && window.DeviceOrientationEvent.requestPermission)) {
+    listenMotion();
   }
   hijackPygbag();
   setInterval(function () { hijackPygbag(); layout(); }, 400);
@@ -235,8 +383,16 @@ def setup_web_page():
           width:100% !important;height:100% !important;
           overflow:hidden !important;background:#050608 !important;
           touch-action:none !important;
+          overscroll-behavior:none !important;
           -webkit-user-select:none !important;user-select:none !important;
-          position:fixed !important;inset:0 !important;
+          position:fixed !important;
+          top:0 !important;right:0 !important;bottom:0 !important;left:0 !important;
+        }
+        #vj-safe{
+          position:fixed;left:0;top:0;width:0;height:0;
+          visibility:hidden;pointer-events:none;
+          padding: env(safe-area-inset-top) env(safe-area-inset-right)
+                   env(safe-area-inset-bottom) env(safe-area-inset-left);
         }
         #status,#progress,#lblstatus,#infobox,.emscripten_border,#pyconsole,#system,#transfer,#info,#box{
           display:none !important;pointer-events:none !important;
@@ -275,6 +431,25 @@ def setup_web_page():
         document.body.appendChild(script)
         if hasattr(window, "eval"):
             window.eval(_FIT_JS)
+    except Exception:
+        pass
+
+
+def toggle_web_flip():
+    """网页里把画面再转 180°。方向传感器不可用时，用画面上的「翻转」。"""
+    if sys.platform != "emscripten":
+        return
+    try:
+        from platform import window
+
+        if hasattr(window, "eval"):
+            window.eval("if(window.__vj){window.__vj.userFlip=window.__vj.userFlip?0:180;}")
+            return
+        vj = getattr(window, "__vj", None)
+        if vj is None:
+            return
+        cur = int(getattr(vj, "userFlip", 0) or 0)
+        vj.userFlip = 0 if cur else 180
     except Exception:
         pass
 

@@ -5,7 +5,7 @@ import sys
 import pygame
 
 from audio import Audio
-from display import poll_web_pointers
+from display import poll_web_pointers, toggle_web_flip
 from entities import Coin, Player, Shot, Slime
 from ime import is_chinese_ime
 from level import CHUNK_W, GROUND_ROW, PIT_Y, ROWS, SOLID, TILE, World
@@ -191,6 +191,9 @@ class Game:
                     self._resume()
             self.touch.handle(event, self.screen.get_size())
 
+        if self.touch.flip_clicked:
+            toggle_web_flip()
+            return
         if self.touch.mute_clicked:
             self.audio.toggle_mute()
             return
@@ -529,6 +532,7 @@ class Game:
             self.touch.pause_r,
             self.state == "pause",
             dist,
+            self.touch.flip_r,
         )
         if self.state == "title":
             draw_title(self.screen, self.fonts)

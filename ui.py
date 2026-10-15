@@ -131,6 +131,7 @@ class TouchControls:
         self.shop_clicked = False
         self.help_clicked = False
         self.pause_clicked = False
+        self.flip_clicked = False
         self.down_pos = None
         self._held = {}  # finger_id / 'mouse' -> action
 
@@ -147,6 +148,10 @@ class TouchControls:
         self.shop_r = pygame.Rect(w - 150, 12, 64, 36)
         self.help_r = pygame.Rect(w - 222, 12, 64, 36)
         self.pause_r = pygame.Rect(w - 294, 12, 64, 36)
+        if sys.platform == "emscripten":
+            self.flip_r = pygame.Rect(578, 12, 72, 36)
+        else:
+            self.flip_r = pygame.Rect(0, 0, 0, 0)
         self.start_r = pygame.Rect(w // 2 - 110, h // 2 + 70, 220, 52)
 
     def _pos_from_event(self, event, screen_size):
@@ -195,6 +200,8 @@ class TouchControls:
             self.help_clicked = True
         if self.pause_r.collidepoint(pos) and state == "down":
             self.pause_clicked = True
+        if self.flip_r.w > 0 and self.flip_r.collidepoint(pos) and state == "down":
+            self.flip_clicked = True
         if self.start_r.collidepoint(pos) and state == "down":
             self.start_clicked = True
         return actions
@@ -231,6 +238,7 @@ class TouchControls:
         self.shop_clicked = False
         self.help_clicked = False
         self.pause_clicked = False
+        self.flip_clicked = False
         self.down_pos = None
 
     def handle(self, event, screen_size):
@@ -283,7 +291,8 @@ class TouchControls:
 
 
 def draw_hud(
-    surf, fonts, coins, hp, max_hp, muted, mute_rect, shop_rect, help_rect, pause_rect, paused, distance
+    surf, fonts, coins, hp, max_hp, muted, mute_rect, shop_rect, help_rect, pause_rect, paused, distance,
+    flip_rect=None,
 ):
     wood_panel(surf, pygame.Rect(12, 10, 150, 48))
     blit_text(surf, fonts.small, f"金币  {coins}", CREAM, topleft=(22, 24))
@@ -299,6 +308,10 @@ def draw_hud(
 
     wood_panel(surf, pygame.Rect(400, 10, 160, 48))
     blit_text(surf, fonts.small, f"路程  {distance}m", CREAM, topleft=(412, 24))
+
+    if flip_rect and flip_rect.w > 0:
+        wood_panel(surf, flip_rect)
+        blit_text(surf, fonts.small, "翻转", CREAM, center=flip_rect.center)
 
     wood_panel(surf, pause_rect)
     blit_text(surf, fonts.small, "开始" if paused else "暂停", CREAM, center=pause_rect.center)
@@ -348,7 +361,7 @@ def draw_help(surf, fonts):
     lines = (
         "电脑：WASD 移动，空格 / W 跳跃",
         "电脑：J 攻击，B 商店，H 说明，P 暂停",
-        "手机：左下方向，右下跳 / 攻，右上暂停",
+        "手机：左下方向，右下跳 / 攻，上方「翻转」",
         "点空白处或再点「说明」关闭",
     )
     y = 180
