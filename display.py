@@ -163,15 +163,24 @@ _FIT_JS = r"""
   function touchUp(ev) {
     for (var i = 0; i < ev.changedTouches.length; i++) up(wrapTouch(ev.changedTouches[i]));
   }
+  function quiet(p) {
+    try {
+      if (p && typeof p.catch === "function") p.catch(function () {});
+    } catch (e) {}
+  }
   function tryWide() {
+    // Optional. Mobile denies fullscreen / orientation lock with
+    // "Permissions check failed"; pygbag alerts any unhandled rejection.
+    if (window.__vj.wideDone) return;
+    window.__vj.wideDone = true;
     try {
       var el = document.documentElement;
       var req = el.requestFullscreen || el.webkitRequestFullscreen || el.webkitRequestFullScreen;
-      if (req) req.call(el);
+      if (req) quiet(req.call(el));
     } catch (e) {}
     try {
       var o = screen.orientation || screen.mozOrientation;
-      if (o && o.lock) o.lock("landscape").catch(function () {});
+      if (o && o.lock) quiet(o.lock("landscape"));
     } catch (e2) {}
   }
 
