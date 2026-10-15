@@ -378,6 +378,15 @@ SHOP_ITEMS = (
 )
 
 
+def shop_panel_rect():
+    return pygame.Rect(190, 70, 580, 400)
+
+
+def shop_close_rect():
+    panel = shop_panel_rect()
+    return pygame.Rect(panel.right - 22, panel.y - 18, 56, 56)
+
+
 def shop_item_rects():
     rects = []
     for i, (kind, _, _) in enumerate(SHOP_ITEMS):
@@ -389,10 +398,14 @@ def draw_shop(surf, fonts, stats, coins, hp, max_hp):
     overlay = pygame.Surface(surf.get_size(), pygame.SRCALPHA)
     overlay.fill((20, 16, 10, 150))
     surf.blit(overlay, (0, 0))
-    box = pygame.Rect(190, 70, 580, 400)
+    box = shop_panel_rect()
     wood_panel(surf, box, 4)
+    close = shop_close_rect()
+    pygame.draw.rect(surf, (160, 64, 48), close, border_radius=12)
+    pygame.draw.rect(surf, CREAM, close, 3, border_radius=12)
+    blit_text(surf, fonts.mid, "X", CREAM, center=close.center)
     blit_text(surf, fonts.big, "旅途商店", GOLD, center=(SCREEN_W // 2, 108))
-    blit_text(surf, fonts.small, f"金币 {coins}    生命 {hp}/{max_hp}    B/关闭", CREAM, center=(SCREEN_W // 2, 138))
+    blit_text(surf, fonts.small, f"金币 {coins}    生命 {hp}/{max_hp}", CREAM, center=(SCREEN_W // 2, 138))
     lv_map = {"jump": stats.jump_lv, "dmg": stats.dmg_lv, "hp": stats.hp_lv, "heal": "-"}
     for (kind, title, desc), (_, rect) in zip(SHOP_ITEMS, shop_item_rects()):
         wood_panel(surf, rect, 2)

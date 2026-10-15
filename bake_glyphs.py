@@ -14,12 +14,12 @@ SIZE = 32
 def collect_chars():
     chars = set(" 0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
     chars.update(".,/:()%+-<>[]{}!?~@#_='\"\\|")
-    chars.update("，。！？、：；（）【】《》—…·♥←→↑↓")
+    chars.update("，。！？、：；（）【】《》「」—…·×♥←→↑↓")
     for p in ROOT.glob("*.py"):
         if p.name == "bake_glyphs.py":
             continue
         text = p.read_text(encoding="utf-8")
-        chars.update(ch for ch in text if "\u4e00" <= ch <= "\u9fff")
+        chars.update(ch for ch in text if ord(ch) > 127)
     return "".join(sorted(chars))
 
 
@@ -37,14 +37,21 @@ def main():
     font = sys_font(SIZE)
     chars = collect_chars()
     glyphs = {}
+    rendered = [(ch, font.render(ch, True, (255, 255, 255))) for ch in chars]
     x = y = 1
     row_h = SIZE + 8
     atlas_w = 1024
-    atlas_h = 1024
+    for _ch, img in rendered:
+        w, h = img.get_size()
+        if x + w + 1 >= atlas_w:
+            x = 1
+            y += row_h
+        x += w + 1
+    atlas_h = max(1024, y + row_h + 8)
+    x = y = 1
     atlas = pygame.Surface((atlas_w, atlas_h), pygame.SRCALPHA)
     atlas.fill((0, 0, 0, 0))
-    for ch in chars:
-        img = font.render(ch, True, (255, 255, 255))
+    for ch, img in rendered:
         w, h = img.get_size()
         if x + w + 1 >= atlas_w:
             x = 1

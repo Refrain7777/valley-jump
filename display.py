@@ -96,23 +96,34 @@ _FIT_JS = r"""
   function commitQuadrant(q) {
     if (q == null) return;
     var now = Date.now();
+    if (q === window.__vj.q) {
+      window.__vj.pendingQ = q;
+      return;
+    }
     if (q !== window.__vj.pendingQ) {
       window.__vj.pendingQ = q;
       window.__vj.pendingAt = now;
       return;
     }
-    if (window.__vj.q == null || now - window.__vj.pendingAt >= 80) window.__vj.q = q;
+    // 换方向要稳住大约半秒，避免手一抖就翻
+    var wait = window.__vj.q == null ? 250 : 600;
+    if (now - window.__vj.pendingAt >= wait) window.__vj.q = q;
   }
 
   function onOrient(ev) {
     if (ev.beta == null || ev.gamma == null) return;
     var b = ev.beta, g = ev.gamma;
     var ab = Math.abs(b), ag = Math.abs(g);
-    if (ab < 18 && ag < 18) return;
+    if (ab < 25 && ag < 25) return;
     var q = null;
     // 0 竖屏正放，1 顺时针横屏，2 倒竖屏，3 逆时针横屏
-    if (ag > ab + 10 && ag > 28) q = g > 0 ? 1 : 3;
-    else if (ab > ag + 10 && ab > 28) q = b > 0 ? 0 : 2;
+    // 已经有方向时，阈值更宽，小幅晃动不算翻转
+    var locked = window.__vj.q != null;
+    var margin = locked ? 38 : 22;
+    var minAxis = locked ? 58 : 42;
+    if (ag > ab + margin && ag > minAxis) q = g > 0 ? 1 : 3;
+    else if (ab > ag + margin && ab > minAxis) q = b > 0 ? 0 : 2;
+    if (q == null) return;
     commitQuadrant(q);
   }
 

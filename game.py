@@ -22,7 +22,9 @@ from ui import (
     draw_pause,
     draw_shop,
     draw_title,
+    shop_close_rect,
     shop_item_rects,
+    shop_panel_rect,
 )
 
 SKY_TOP = (126, 186, 214)
@@ -430,6 +432,9 @@ class Game:
             self.state = "help"
 
     def _shop_click(self, pos):
+        if shop_close_rect().collidepoint(pos) or not shop_panel_rect().collidepoint(pos):
+            self._resume()
+            return
         for kind, rect in shop_item_rects():
             if rect.collidepoint(pos):
                 self._buy(kind)
