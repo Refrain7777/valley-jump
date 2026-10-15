@@ -19,6 +19,7 @@ from ui import (
     draw_help,
     draw_hud,
     draw_ime_warn,
+    draw_pause,
     draw_shop,
     draw_title,
     shop_item_rects,
@@ -142,10 +143,14 @@ class Game:
                 self.running = False
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    if self.state in ("shop", "help"):
-                        self.state = "play"
+                    if self.state in ("shop", "help", "pause"):
+                        self._resume()
+                    elif self.state == "play":
+                        self._pause()
                     else:
                         self.running = False
+                elif event.key == pygame.K_p:
+                    self._toggle_pause()
                 elif event.key == pygame.K_b:
                     self._toggle_shop()
                 elif event.key == pygame.K_h:
@@ -160,6 +165,11 @@ class Game:
                 ):
                     kinds = {pygame.K_1: "jump", pygame.K_2: "dmg", pygame.K_3: "hp", pygame.K_4: "heal"}
                     self._buy(kinds[event.key])
+                elif self.state == "pause" and event.key in (
+                    pygame.K_SPACE,
+                    pygame.K_RETURN,
+                ):
+                    self._resume()
                 elif self.state in ("win", "lose", "title") and event.key in (
                     pygame.K_SPACE,
                     pygame.K_RETURN,
@@ -175,11 +185,17 @@ class Game:
             elif self.state == "shop" and event.type == pygame.MOUSEBUTTONDOWN:
                 self._shop_click(event.pos)
             elif self.state == "help" and event.type == pygame.MOUSEBUTTONDOWN:
-                self.state = "play"
+                self._resume()
+            elif self.state == "pause" and event.type == pygame.MOUSEBUTTONDOWN:
+                if self.touch.start_r.collidepoint(event.pos) or self.touch.pause_r.collidepoint(event.pos):
+                    self._resume()
             self.touch.handle(event, self.screen.get_size())
 
         if self.touch.mute_clicked:
             self.audio.toggle_mute()
+            return
+        if self.touch.pause_clicked:
+            self._toggle_pause()
             return
         if self.touch.help_clicked:
             self._toggle_help()
@@ -190,11 +206,15 @@ class Game:
 
         if self.state == "help":
             if self.touch.down_pos and not self.touch.help_r.collidepoint(self.touch.down_pos):
-                self.state = "play"
+                self._resume()
             return
         if self.state == "shop":
             if self.touch.down_pos:
                 self._shop_click(self.touch.down_pos)
+            return
+        if self.state == "pause":
+            if self.touch.start_clicked or self.touch.jump_clicked:
+                self._resume()
             return
         if self.state != "play":
             if self.touch.start_clicked or self.touch.jump_clicked:
@@ -209,7 +229,31 @@ class Game:
 
     def _start_or_retry(self):
         self.reset_world(full=True)
+        self._resume()
+
+    def _clear_hold(self):
+        self.touch._held.clear()
+        self.touch.left = self.touch.right = self.touch.jump = False
+        self.jump_held = False
+        self.jump_buf = 0.0
+
+    def _pause(self):
+        if self.state != "play":
+            return
+        self._clear_hold()
+        self.state = "pause"
+        self.audio.pause_game()
+
+    def _resume(self):
+        self._clear_hold()
         self.state = "play"
+        self.audio.resume_game()
+
+    def _toggle_pause(self):
+        if self.state == "play":
+            self._pause()
+        elif self.state == "pause":
+            self._resume()
 
     def _try_jump(self):
         if self.state != "play":
@@ -365,18 +409,20 @@ class Game:
         self.slimes = [s for s in self.slimes if s.alive and s.x > left]
 
     def _toggle_shop(self):
-        if self.state == "play":
+        if self.state in ("play", "pause"):
+            self._clear_hold()
             self.state = "shop"
         elif self.state == "shop":
-            self.state = "play"
+            self._resume()
         elif self.state == "help":
             self.state = "shop"
 
     def _toggle_help(self):
-        if self.state == "play":
+        if self.state in ("play", "pause"):
+            self._clear_hold()
             self.state = "help"
         elif self.state == "help":
-            self.state = "play"
+            self._resume()
         elif self.state == "shop":
             self.state = "help"
 
@@ -480,6 +526,8 @@ class Game:
             self.touch.mute_r,
             self.touch.shop_r,
             self.touch.help_r,
+            self.touch.pause_r,
+            self.state == "pause",
             dist,
         )
         if self.state == "title":
@@ -498,6 +546,9 @@ class Game:
         elif self.state == "help":
             self.touch.draw(self.screen, self.fonts, show_start=False)
             draw_help(self.screen, self.fonts)
+        elif self.state == "pause":
+            self.touch.draw(self.screen, self.fonts, show_start=False)
+            draw_pause(self.screen, self.fonts, self.touch.start_r)
         elif self.state == "lose":
             draw_end(
                 self.screen,
@@ -508,5 +559,5 @@ class Game:
             self.touch.draw(self.screen, self.fonts, show_start=True)
         else:
             self.touch.draw(self.screen, self.fonts, show_start=False)
-        if self.state not in ("shop", "help"):
+        if self.state not in ("shop", "help", "pause"):
             draw_ime_warn(self.screen, self.fonts, self.ime_blocked)

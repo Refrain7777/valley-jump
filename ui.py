@@ -130,6 +130,7 @@ class TouchControls:
         self.mute_clicked = False
         self.shop_clicked = False
         self.help_clicked = False
+        self.pause_clicked = False
         self.down_pos = None
         self._held = {}  # finger_id / 'mouse' -> action
 
@@ -145,6 +146,7 @@ class TouchControls:
         self.mute_r = pygame.Rect(w - 78, 12, 64, 36)
         self.shop_r = pygame.Rect(w - 150, 12, 64, 36)
         self.help_r = pygame.Rect(w - 222, 12, 64, 36)
+        self.pause_r = pygame.Rect(w - 294, 12, 64, 36)
         self.start_r = pygame.Rect(w // 2 - 110, h // 2 + 70, 220, 52)
 
     def _pos_from_event(self, event, screen_size):
@@ -191,6 +193,8 @@ class TouchControls:
             self.shop_clicked = True
         if self.help_r.collidepoint(pos) and state == "down":
             self.help_clicked = True
+        if self.pause_r.collidepoint(pos) and state == "down":
+            self.pause_clicked = True
         if self.start_r.collidepoint(pos) and state == "down":
             self.start_clicked = True
         return actions
@@ -226,6 +230,7 @@ class TouchControls:
         self.mute_clicked = False
         self.shop_clicked = False
         self.help_clicked = False
+        self.pause_clicked = False
         self.down_pos = None
 
     def handle(self, event, screen_size):
@@ -277,7 +282,9 @@ class TouchControls:
             blit_text(surf, fonts.mid, "开始游戏", CREAM, center=self.start_r.center)
 
 
-def draw_hud(surf, fonts, coins, hp, max_hp, muted, mute_rect, shop_rect, help_rect, distance):
+def draw_hud(
+    surf, fonts, coins, hp, max_hp, muted, mute_rect, shop_rect, help_rect, pause_rect, paused, distance
+):
     wood_panel(surf, pygame.Rect(12, 10, 150, 48))
     blit_text(surf, fonts.small, f"金币  {coins}", CREAM, topleft=(22, 24))
 
@@ -293,6 +300,8 @@ def draw_hud(surf, fonts, coins, hp, max_hp, muted, mute_rect, shop_rect, help_r
     wood_panel(surf, pygame.Rect(400, 10, 160, 48))
     blit_text(surf, fonts.small, f"路程  {distance}m", CREAM, topleft=(412, 24))
 
+    wood_panel(surf, pause_rect)
+    blit_text(surf, fonts.small, "开始" if paused else "暂停", CREAM, center=pause_rect.center)
     wood_panel(surf, help_rect)
     blit_text(surf, fonts.small, "说明", CREAM, center=help_rect.center)
     wood_panel(surf, shop_rect)
@@ -338,8 +347,8 @@ def draw_help(surf, fonts):
     blit_text(surf, fonts.big, "操作说明", GOLD, center=(SCREEN_W // 2, 130))
     lines = (
         "电脑：WASD 移动，空格 / W 跳跃",
-        "电脑：J 攻击，B 商店，H 说明",
-        "手机：左下方向，右下跳 / 攻",
+        "电脑：J 攻击，B 商店，H 说明，P 暂停",
+        "手机：左下方向，右下跳 / 攻，右上暂停",
         "点空白处或再点「说明」关闭",
     )
     y = 180
@@ -380,6 +389,18 @@ def draw_shop(surf, fonts, stats, coins, hp, max_hp):
         extra = f"  Lv{lv}" if kind != "heal" else ""
         blit_text(surf, fonts.small, title + extra, CREAM, topleft=(rect.x + 14, rect.y + 8))
         blit_text(surf, fonts.small, f"{desc}    {cost_txt}", GOLD, topleft=(rect.x + 14, rect.y + 28))
+
+
+def draw_pause(surf, fonts, start_rect):
+    overlay = pygame.Surface(surf.get_size(), pygame.SRCALPHA)
+    overlay.fill((20, 16, 10, 140))
+    surf.blit(overlay, (0, 0))
+    box = pygame.Rect(250, 100, 460, 280)
+    wood_panel(surf, box, 4)
+    blit_text(surf, fonts.big, "已暂停", GOLD, center=(SCREEN_W // 2, 155))
+    blit_text(surf, fonts.small, "点「开始」或按 P / 空格继续", CREAM, center=(SCREEN_W // 2, 205))
+    wood_panel(surf, start_rect)
+    blit_text(surf, fonts.mid, "开始", CREAM, center=start_rect.center)
 
 
 def draw_end(surf, fonts, title, subtitle):

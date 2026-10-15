@@ -67,6 +67,14 @@ class Audio:
             if sound:
                 sound.play()
 
+    def pause_game(self):
+        if self.enabled:
+            pygame.mixer.pause()
+
+    def resume_game(self):
+        if self.enabled and not self.muted:
+            pygame.mixer.unpause()
+
     def toggle_mute(self):
         self.muted = not self.muted
         if self.muted:
