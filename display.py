@@ -1,4 +1,4 @@
-"""网页画布按 16:9 真实像素居中，触摸坐标用浏览器指针换算，不依赖 CSS transform。"""
+"""网页画布按 16:9 铺满；手机竖屏时旋转成横版，触摸按旋转后的画面换算。"""
 
 import json
 import sys
@@ -10,36 +10,49 @@ _FIT_JS = r"""
 (function () {
   if (window.__vjReady) return;
   window.__vjReady = true;
-  window.__vj = { pointers: {}, json: '{"p":[]}' };
+  window.__vj = { pointers: {}, json: '{"p":[]}', rotated: false };
   var GW = 960, GH = 540;
 
   function canvas() {
     return document.querySelector("canvas") || document.getElementById("canvas") || document.getElementById("pygame");
   }
 
+  function viewSize() {
+    var vv = window.visualViewport;
+    var sw = (vv && vv.width) || window.innerWidth || document.documentElement.clientWidth;
+    var sh = (vv && vv.height) || window.innerHeight || document.documentElement.clientHeight;
+    return { sw: sw, sh: sh };
+  }
+
   function fit() {
     var c = canvas();
     if (!c) return;
-    var sw = window.innerWidth || document.documentElement.clientWidth;
-    var sh = window.innerHeight || document.documentElement.clientHeight;
-    var s = Math.min(sw / GW, sh / GH);
+    var size = viewSize();
+    var sw = size.sw, sh = size.sh;
+    // 浏览器仍报竖屏时（手机已横过来也很常见），把 16:9 画面旋转铺满
+    var rotated = sw < sh;
+    window.__vj.rotated = rotated;
+    var s = rotated ? Math.min(sw / GH, sh / GW) : Math.min(sw / GW, sh / GH);
     var w = Math.max(1, Math.round(GW * s));
     var h = Math.max(1, Math.round(GH * s));
-    c.style.position = "fixed";
-    c.style.left = Math.floor((sw - w) / 2) + "px";
-    c.style.top = Math.floor((sh - h) / 2) + "px";
-    c.style.right = "auto";
-    c.style.bottom = "auto";
-    c.style.margin = "0";
-    c.style.width = w + "px";
-    c.style.height = h + "px";
-    c.style.maxWidth = "none";
-    c.style.maxHeight = "none";
-    c.style.transform = "none";
-    c.style.objectFit = "fill";
-    c.style.touchAction = "none";
-    c.style.zIndex = "20";
-    c.style.pointerEvents = "auto";
+    c.style.cssText = [
+      "position:fixed",
+      "left:" + Math.floor((sw - w) / 2) + "px",
+      "top:" + Math.floor((sh - h) / 2) + "px",
+      "right:auto",
+      "bottom:auto",
+      "margin:0",
+      "width:" + w + "px",
+      "height:" + h + "px",
+      "max-width:none",
+      "max-height:none",
+      "transform:" + (rotated ? "rotate(90deg)" : "none"),
+      "transform-origin:center center",
+      "object-fit:fill",
+      "touch-action:none",
+      "z-index:20",
+      "pointer-events:auto"
+    ].join(";");
   }
 
   function toGame(ev) {
@@ -47,10 +60,13 @@ _FIT_JS = r"""
     if (!c) return null;
     var r = c.getBoundingClientRect();
     if (r.width < 1 || r.height < 1) return null;
-    return {
-      x: ((ev.clientX - r.left) / r.width) * GW,
-      y: ((ev.clientY - r.top) / r.height) * GH
-    };
+    var nx = (ev.clientX - r.left) / r.width;
+    var ny = (ev.clientY - r.top) / r.height;
+    if (window.__vj.rotated) {
+      // CSS rotate(90deg)：屏幕左右对应游戏上下，屏幕上下对应游戏左右
+      return { x: ny * GW, y: (1 - nx) * GH };
+    }
+    return { x: nx * GW, y: ny * GH };
   }
 
   function dump() {
@@ -97,6 +113,13 @@ _FIT_JS = r"""
   function touchUp(ev) {
     for (var i = 0; i < ev.changedTouches.length; i++) up(wrapTouch(ev.changedTouches[i]));
   }
+  function tryLandscape() {
+    try {
+      var o = screen.orientation || screen.mozOrientation;
+      if (o && o.lock) o.lock("landscape").catch(function () {});
+    } catch (e) {}
+  }
+  document.addEventListener("pointerdown", function () { tryLandscape(); }, { capture: true });
   document.addEventListener("pointerdown", down, { passive: false, capture: true });
   document.addEventListener("pointermove", move, { passive: false, capture: true });
   document.addEventListener("pointerup", up, { passive: false, capture: true });
@@ -136,6 +159,15 @@ def setup_web_page():
         }
         """
         document.head.appendChild(style)
+        var meta = document.querySelector('meta[name="viewport"]')
+        if not meta:
+            meta = document.createElement("meta")
+            meta.setAttribute("name", "viewport")
+            document.head.appendChild(meta)
+        meta.setAttribute(
+            "content",
+            "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover",
+        )
         document.body.style.margin = "0"
         document.body.style.overflow = "hidden"
 
