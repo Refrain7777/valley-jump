@@ -10,6 +10,7 @@ _FIT_JS = r"""
 (function () {
   if (window.__vjReady) return;
   window.__vjReady = true;
+  if (window.vjBootDone) window.vjBootDone();
   window.__vj = { pointers: {}, json: '{"p":[]}', rotated: false };
   var GW = 960, GH = 540;
 
