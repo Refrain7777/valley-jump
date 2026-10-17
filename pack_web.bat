@@ -15,5 +15,6 @@ echo 开始打包并启动网页。请用浏览器打开稍后出现的地址。
 echo 手机请先和电脑连同一个 WiFi，然后访问 电脑IP:8000
 echo 按 Ctrl+C 可停止。
 echo.
-python -m pygbag --width 960 --height 540 --ume_block 0 --bind 0.0.0.0 D:\Py_Cursor
+python bake_glyphs.py
+python -m pygbag --width 960 --height 540 --ume_block 0 --template valley.tmpl --title "山谷跳跃" --bind 0.0.0.0 D:\Py_Cursor
 pause

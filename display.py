@@ -408,6 +408,7 @@ def setup_web_page():
         #status,#progress,#lblstatus,#infobox,.emscripten_border,#pyconsole,#system,#transfer,#info,#box{
           display:none !important;pointer-events:none !important;
         }
+        #valley-load{ z-index:10000 !important; }
         #vj-stage{
           position:fixed !important;z-index:9999 !important;
           left:50% !important;top:50% !important;
@@ -442,6 +443,37 @@ def setup_web_page():
         document.body.appendChild(script)
         if hasattr(window, "eval"):
             window.eval(_FIT_JS)
+    except Exception:
+        pass
+
+
+def set_web_progress(pct, text=""):
+    """更新 HTML 加载进度条（仅网页）。"""
+    if sys.platform != "emscripten":
+        return
+    try:
+        from platform import window
+
+        if hasattr(window, "_valleyProgress"):
+            window._valleyProgress(float(pct), str(text or ""))
+        elif hasattr(window, "eval"):
+            safe = str(text or "").replace("\\", "\\\\").replace("'", "\\'")
+            window.eval(f"window._valleyProgress && window._valleyProgress({float(pct)}, '{safe}')")
+    except Exception:
+        pass
+
+
+def hide_web_loader():
+    """游戏就绪后关掉 HTML 加载层。"""
+    if sys.platform != "emscripten":
+        return
+    try:
+        from platform import window
+
+        if hasattr(window, "_valleyHideLoader"):
+            window._valleyHideLoader()
+        elif hasattr(window, "eval"):
+            window.eval("window._valleyHideLoader && window._valleyHideLoader()")
     except Exception:
         pass
 

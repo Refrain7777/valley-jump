@@ -2,13 +2,13 @@
 
 import json
 import pathlib
-import re
 
 import pygame
 
 ROOT = pathlib.Path(__file__).resolve().parent
 OUT_DIR = ROOT / "assets"
 SIZE = 32
+ATLAS_W = 768
 
 
 def collect_chars():
@@ -38,34 +38,41 @@ def main():
     chars = collect_chars()
     glyphs = {}
     rendered = [(ch, font.render(ch, True, (255, 255, 255))) for ch in chars]
-    x = y = 1
     row_h = SIZE + 8
-    atlas_w = 1024
+    x = y = 1
     for _ch, img in rendered:
         w, h = img.get_size()
-        if x + w + 1 >= atlas_w:
+        if x + w + 1 >= ATLAS_W:
             x = 1
             y += row_h
         x += w + 1
-    atlas_h = max(1024, y + row_h + 8)
+    atlas_h = y + row_h + 8
     x = y = 1
-    atlas = pygame.Surface((atlas_w, atlas_h), pygame.SRCALPHA)
+    atlas = pygame.Surface((ATLAS_W, atlas_h), pygame.SRCALPHA)
     atlas.fill((0, 0, 0, 0))
     for ch, img in rendered:
         w, h = img.get_size()
-        if x + w + 1 >= atlas_w:
+        if x + w + 1 >= ATLAS_W:
             x = 1
             y += row_h
         atlas.blit(img, (x, y))
         glyphs[ch] = {"x": x, "y": y, "w": w, "h": h}
         x += w + 1
     OUT_DIR.mkdir(exist_ok=True)
-    pygame.image.save(atlas, str(OUT_DIR / "glyphs.png"))
+    out_png = OUT_DIR / "glyphs.png"
+    pygame.image.save(atlas, str(out_png))
+    try:
+        from PIL import Image
+
+        img = Image.open(out_png).convert("RGBA")
+        img.save(out_png, format="PNG", optimize=True, compress_level=9)
+    except Exception:
+        pass
     (OUT_DIR / "glyphs.json").write_text(
         json.dumps({"size": SIZE, "glyphs": glyphs}, ensure_ascii=False),
         encoding="utf-8",
     )
-    print("baked", len(glyphs), "glyphs")
+    print("baked", len(glyphs), "glyphs", "atlas", ATLAS_W, "x", atlas_h, "->", out_png.stat().st_size, "bytes")
 
 
 if __name__ == "__main__":

@@ -40,15 +40,15 @@ MOVE_SPEED = 250
 
 
 class Game:
-    def __init__(self, screen):
+    def __init__(self, screen, defer_audio=False, fonts=None):
         self.screen = screen
         self.running = True
         self.state = "play"
         self.time = 0.0
-        self.audio = Audio()
+        self.audio = Audio(lazy=defer_audio or sys.platform == "emscripten")
         self.touch = TouchControls()
         self.touch.layout(screen.get_size())
-        self.fonts = Fonts()
+        self.fonts = fonts if fonts is not None else Fonts()
         self.cam = pygame.Vector2(0, 0)
         self.world = World()
         self.coins_got = 0
@@ -61,7 +61,11 @@ class Game:
         self.shoot_cd = 0.0
         self.best_distance = 0
         self.reset_world(full=True)
-        self.audio.play_bgm()
+        if not defer_audio:
+            self.audio.ensure_ready()
+            self.audio.play_bgm()
+        else:
+            self.audio.play_bgm()
 
     def reset_world(self, full=False):
         if full:
