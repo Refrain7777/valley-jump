@@ -25,11 +25,24 @@ def collect_chars():
 
 def sys_font(size):
     pygame.font.init()
-    for name in ("microsoftyahei", "msyh", "simhei", "simsun"):
+    # Windows names first, then the CJK fonts available on Linux CI.
+    for name in (
+        "microsoftyahei",
+        "msyh",
+        "simhei",
+        "simsun",
+        "wenquanyimicrohei",
+        "notosanscjksc",
+        "droidsansfallback",
+    ):
         path = pygame.font.match_font(name)
         if path:
+            print("glyph font", name, path)
             return pygame.font.Font(path, size)
-    return pygame.font.Font(None, size)
+    raise SystemExit(
+        "bake_glyphs: no CJK font found "
+        "(expected Microsoft YaHei/SimHei, WenQuanYi Micro Hei, or Noto Sans CJK)"
+    )
 
 
 def main():
